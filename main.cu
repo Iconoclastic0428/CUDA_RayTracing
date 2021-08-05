@@ -29,8 +29,24 @@ __device__ vec3 color(const ray& r,
         ray scattered;
         vec3 attenuation;
         vec3 emitted = rec.mat_ptr->emitted(0., 0., rec.p);
-        if (rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, state)) {
-            cur_attenuation *= attenuation;
+        float pdf;
+        if (rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, state, pdf)) {
+            auto on_light = vec3(213 + curand_uniform(state) * (343 - 213), 554, 227 + curand_uniform(state) * (332 - 227));
+            auto to_light = on_light - rec.p;
+            auto distance_squared = dot(to_light, to_light);
+            to_light = unit_vector(to_light);
+
+            if (dot(to_light, rec.normal) < 0)
+                return emitted;
+
+            double light_area = (343 - 213) * (332 - 227);
+            auto light_cosine = fabs(to_light.y());
+            if (light_cosine < 0.000001)
+                return emitted;
+
+            pdf = distance_squared / (light_cosine * light_area);
+            scattered = ray(rec.p, to_light, r.time());
+            cur_attenuation *= (attenuation * rec.mat_ptr->scattering_pdf(cur_ray, rec, scattered) / pdf);
             cur_ray = scattered;
         }
         else {
@@ -155,8 +171,10 @@ __global__ void cornell_box(hittable** d_list, hittable** d_world, camera** d_ca
     d_list[3] = new rectangle_xz(0, 555, 0, 555, 0, new lambertian(vec3(0.73, 0.73, 0.73)));
     d_list[4] = new rectangle_xz(0, 555, 0, 555, 555, new lambertian(vec3(0.73, 0.73, 0.73)));
     d_list[5] = new rectangle_xy(0, 555, 0, 555, 555, new lambertian(vec3(0.73, 0.73, 0.73)));
-    d_list[6] = new box(vec3(130, 0, 65), vec3(295, 165, 230), new lambertian(vec3(0.73, 0.73, 0.73)));
-    d_list[7] = new box(vec3(265, 0, 295), vec3(430, 330, 460), new lambertian(vec3(0.73, 0.73, 0.73)));
+    hittable* box_1 = new box(vec3(130, 0, 65), vec3(295, 165, 230), new lambertian(vec3(0.73, 0.73, 0.73)));
+    hittable* box_2 = new box(vec3(265, 0, 295), vec3(430, 330, 460), new lambertian(vec3(0.73, 0.73, 0.73)));
+    d_list[6] = box_1;
+    d_list[7] = box_2;
     *d_world = new hittable_list(d_list, 8);
     *d_cam = new camera(vec3(278, 278, -800), vec3(278, 278, 0), vec3(0, 1, 0), 40.f, float(nx) / float(ny), 0.f, 10.f, 0.f, 0.f);
 
@@ -165,9 +183,9 @@ __global__ void cornell_box(hittable** d_list, hittable** d_world, camera** d_ca
 int main() {
     int nx = 600;
     int ny = 600;
-    int tx = 8;
-    int ty = 8;
-    int ns = 400;
+    int tx = 16;
+    int ty = 16;
+    int ns = 100;
 
     std::cerr << "Rendering a " << nx << "x" << ny << " image ";
     std::cerr << "in " << tx << "x" << ty << " blocks.\n";

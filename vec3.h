@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <iostream>
 
+#define M_PI 3.14159265
+
 class vec3 {
 public:
 	__host__ __device__ vec3() : e{0, 0, 0} {}

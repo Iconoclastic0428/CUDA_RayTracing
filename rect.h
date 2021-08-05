@@ -59,6 +59,22 @@ public:
         box = aabb(vec3(x0, k - 0.0001, z0), vec3(x1, k + 0.0001, z1));
         return true;
     }
+    __device__ virtual double pdf_value(const vec3& origin, const vec3& v) const override {
+        hit_record rec;
+        if (!this->hit(ray(origin, v), 0.001, FLT_MAX, rec))
+            return 0;
+
+        auto area = (x1 - x0) * (z1 - z0);
+        auto distance_squared = rec.t * rec.t * v.squared_length();
+        auto cosine = fabs(dot(v, rec.normal) / v.length());
+
+        return distance_squared / (cosine * area);
+    }
+
+    __device__ virtual vec3 random(const vec3& origin, curandState* state) const override {
+        auto random_point = vec3(x0 + curand_normal(state) * (x1 - x0), k, z0 + curand_normal(state) * (z1 - z0));
+        return random_point - origin;
+    }
 
     float x0, x1, z0, z1, k;
     material* mat_ptr;

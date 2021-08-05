@@ -5,6 +5,7 @@ struct hit_record;
 
 #include "ray.h"
 #include "hittable.h"
+#include "onb.h"
 
 #define RANDVEC3 vec3(curand_uniform(local_rand_state),curand_uniform(local_rand_state),curand_uniform(local_rand_state))
 
@@ -40,7 +41,10 @@ __device__ vec3 reflect(const vec3& v, const vec3& n) {
 
 class material {
 public:
-    __device__ virtual bool scatter(const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState* local_rand_state) const = 0;
+    __device__ virtual bool scatter(const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState* local_rand_state, float& pdf) const = 0;
+    __device__ virtual float scattering_pdf(const ray& r_in, const hit_record& rec, const ray& scattered) const {
+        return 0;
+    }
     __device__ virtual vec3 emitted(double u, double v, const vec3& p) const {
         return vec3(0, 0, 0);
     }
@@ -49,11 +53,18 @@ public:
 class lambertian : public material {
 public:
     __device__ lambertian(const vec3& a) : albedo(a) {}
-    __device__ virtual bool scatter(const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState* local_rand_state) const {
-        vec3 target = rec.p + rec.normal + random_in_unit_sphere(local_rand_state);
-        scattered = ray(rec.p, target - rec.p);
+    __device__ virtual bool scatter(const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState* local_rand_state, float& pdf) const {
+        onb uvw;
+        uvw.build_from_w(rec.normal);
+        vec3 target = uvw.local(random_cosine_direction(local_rand_state));
+        scattered = ray(rec.p, unit_vector(target));
         attenuation = albedo;
+        pdf = dot(uvw.w(), scattered.direction()) / M_PI;
         return true;
+    }
+    __device__ float scattering_pdf(const ray& r_in, const hit_record& rec, const ray& scattered) const {
+        auto cos = dot(rec.normal, unit_vector(scattered.direction()));
+        return cos < 0 ? 0 : cos / M_PI;
     }
 
     vec3 albedo;
@@ -62,7 +73,7 @@ public:
 class metal : public material {
 public:
     __device__ metal(const vec3& a, float f) : albedo(a) { if (f < 1) fuzz = f; else fuzz = 1; }
-    __device__ virtual bool scatter(const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState* local_rand_state) const {
+    __device__ virtual bool scatter(const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState* local_rand_state, float& pdf) const {
         vec3 reflected = reflect(unit_vector(r_in.direction()), rec.normal);
         scattered = ray(rec.p, reflected + fuzz * random_in_unit_sphere(local_rand_state), r_in.time());
         attenuation = albedo;
@@ -79,7 +90,7 @@ public:
         const hit_record& rec,
         vec3& attenuation,
         ray& scattered,
-        curandState* local_rand_state) const {
+        curandState* local_rand_state, float& pdf) const {
         vec3 outward_normal;
         vec3 reflected = reflect(r_in.direction(), rec.normal);
         float ni_over_nt;
@@ -117,7 +128,7 @@ public:
     __device__ diffuse_light (const vec3& a) : emit(a) {}
 
     __device__ virtual bool scatter(
-        const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState* local_rand_state) const override {
+        const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState* local_rand_state, float& pdf) const override {
         return false;
     }
 
